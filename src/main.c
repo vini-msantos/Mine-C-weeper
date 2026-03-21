@@ -2,7 +2,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 
 #define HEIGHT 1000
@@ -71,12 +70,14 @@ typedef struct Neighbors {
 } Neighbors;
 
 Texture textures[TEXTURE_COUNT];
+Texture flag_texture;
 Difficulty difficulty = HARD;
 State game_state = MENU;
 
 Tile board[WIDTH_TILES][HEIGHT_TILES];
 
 int flag_count = 0;
+int mine_count = 0;
 
 int get_difficulty_mine_count(void) {
 	switch (difficulty) {
@@ -125,19 +126,27 @@ void increment_neighbors(int x, int y) {
 	neighbors_free(nbrs);
 }
 
-void place_mines(int start_x, int start_y) {
-	int mine_count = 0;
+bool can_place_mine(int x, int y, int start_x, int start_y) {
+	bool dx = (start_x - x) > 2 || (start_x - x) < -2;
+	bool dy = (start_y - y) > 2 || (start_y - y) < -2;
 
-	while (mine_count < get_difficulty_mine_count()) {
+	return board[x][y].type != MINE && (dx || dy);
+}
+
+void place_mines(int mines, int start_x, int start_y) {
+	int count = 0;
+
+	while (count < mines) {
 		int x = GetRandomValue(0, WIDTH_TILES-1);
 		int y = GetRandomValue(0, HEIGHT_TILES-1);
 
-		if (board[x][y].type == MINE || (x == start_x && y == start_y)) continue;
+		if (!can_place_mine(x, y, start_x, start_y)) continue;
 
 		board[x][y].type = MINE;
 		increment_neighbors(x, y);
-		mine_count++;
+		count++;
 	}
+	mine_count = count;
 }
 
 Texture* get_tile_texture(Tile tile) {
@@ -148,6 +157,12 @@ Texture* get_tile_texture(Tile tile) {
 
 Vector2 vec2_add(Vector2 a, Vector2 b) {
 	return (Vector2) {a.x + b.x, a.y + b.y };
+}
+
+void draw_flag_count(void) {
+	Vector2 offset = {30, 30};
+	DrawTextureEx(flag_texture, offset, 0, 2, WHITE);
+	DrawText(TextFormat("%d", mine_count - flag_count), offset.x + 36, offset.y + TEXTURE_SIZE/2.0, 16, WHITE);
 }
 
 void draw_tile(Tile tile, int x, int y) {
@@ -193,7 +208,7 @@ void enter_idle_state(void) {
 
 void enter_game_state(int start_x, int start_y) {
 	game_state = GAME;
-	place_mines(start_x, start_y);
+	place_mines(get_difficulty_mine_count(), start_x, start_y);
 }
 
 void enter_end_state(void) {
@@ -314,14 +329,16 @@ void update_end_state(void) {
 
 void load_textures(void) {
 	for (int i = 0; i < TEXTURE_COUNT; i++) {
-		textures[i] = LoadTexture(TextFormat("./Sprites/%d.png", i));
+		textures[i] = LoadTexture(TextFormat("./src/Sprites/%d.png", i));
 	}	
+	flag_texture = LoadTexture("./src/Sprites/flag.png");
 }
 
 void unload_textures(void) {
 	for (int i = 0; i < TEXTURE_COUNT; i++) {
 		UnloadTexture(textures[i]);
 	}
+	UnloadTexture(flag_texture);
 }
 
 void handle_update(void) {
@@ -340,7 +357,14 @@ void handle_drawing(void) {
 
 	switch (game_state) {
 		case IDLE:
-		case GAME: draw_board(); break;
+			draw_board();
+			break;
+
+		case GAME:
+			draw_flag_count();
+			draw_board();
+			break;
+
 		case END: 
 			// TODO
 			draw_board();
