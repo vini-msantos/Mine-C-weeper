@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 #define HEIGHT 1000
@@ -27,7 +28,8 @@ typedef enum State {
 	MENU,
 	IDLE,
 	GAME,
-	END
+	END_WIN,
+	END_LOSE
 } State;
 
 typedef enum Difficulty {
@@ -112,6 +114,7 @@ bool game_should_exit = false;
 Tile board[WIDTH_TILES][HEIGHT_TILES];
 
 int flag_count = 0;
+int tiles_dug = 0;
 int mine_count = 0;
 
 int frames_since_last_state = 0;
@@ -263,19 +266,19 @@ void create_menu_buttons() {
 	int font_size = 40;
 	Vector2 size = {180, 60};
 
-	menu_buttons.play = create_button("Play", Vec2(x, HEIGHT*0.35), size, font_size);
+	menu_buttons.play = create_button("Play", Vec2(x, HEIGHT*0.55), size, font_size);
 	menu_buttons.buttons[0] = &menu_buttons.play;
 
-	menu_buttons.quit = create_button("Quit", Vec2(x, HEIGHT*0.65), size, font_size); 
+	menu_buttons.quit = create_button("Quit", Vec2(x, HEIGHT*0.90), size, font_size); 
 	menu_buttons.buttons[1] = &menu_buttons.quit;
 
-	menu_buttons.easy = create_button("Easy", Vec2(x - (size.x + 30), HEIGHT * 0.5), size, font_size);
+	menu_buttons.easy = create_button("Easy", Vec2(x - (size.x + 30), HEIGHT * 0.65), size, font_size);
 	menu_buttons.buttons[2] = &menu_buttons.easy;
 
-	menu_buttons.medium = create_button("Medium", Vec2(x, HEIGHT * 0.5), size, font_size);
+	menu_buttons.medium = create_button("Medium", Vec2(x, HEIGHT * 0.65), size, font_size);
 	menu_buttons.buttons[3] = &menu_buttons.medium;
 
-	menu_buttons.hard = create_button("Hard", Vec2(x + (size.x + 30), HEIGHT * 0.5), size, font_size);
+	menu_buttons.hard = create_button("Hard", Vec2(x + (size.x + 30), HEIGHT * 0.65), size, font_size);
 	menu_buttons.buttons[4] = &menu_buttons.hard;
 
 	menu_buttons.button_count = MENU_BUTTONS_COUNT;
@@ -334,6 +337,8 @@ void enter_menu_state(void) {
 
 void enter_idle_state(void) {
 	game_state = IDLE;
+	flag_count = 0;
+	tiles_dug = 0;
 	frames_since_last_state = 0;
 
 	for (int y = 0; y < HEIGHT_TILES; y++) {
@@ -352,8 +357,10 @@ void enter_game_state(int start_x, int start_y) {
 	place_mines(get_difficulty_mine_count(), start_x, start_y);
 }
 
-void enter_end_state(void) {
-	game_state = END;
+void enter_end_state(bool has_won) {
+	game_state = END_LOSE;
+	if (has_won) game_state = END_WIN;
+	
 	frames_since_last_state = 0;
 	create_end_buttons();
 	for (int x = 0; x < WIDTH_TILES; x++) {
@@ -371,10 +378,18 @@ void enter_end_state(void) {
 	}
 }
 
+void check_win(void) {
+	if (flag_count + tiles_dug == WIDTH_TILES * HEIGHT_TILES && game_state == GAME) {
+		enter_end_state(true);
+	}
+}
+
 void handle_lclick_board(int x, int y, bool recursive);
 
 void dig_tile(int x, int y) {
 	Tile* tile = &board[x][y];
+
+	if (tile->state != DUG) tiles_dug++;
 	tile->state = DUG;
 	
 	if (game_state == IDLE) {
@@ -383,7 +398,7 @@ void dig_tile(int x, int y) {
 	
 	if (tile->type == MINE) {
 		tile->type = EXPLODED_MINE;
-		enter_end_state();
+		enter_end_state(false);
 	}
 
 	if (tile->type == N0) {
@@ -394,6 +409,8 @@ void dig_tile(int x, int y) {
 		}
 		neighbors_free(nbrs);
 	}
+
+	check_win();
 }
 
 int neighbors_flag_count(Neighbors nbrs) {
@@ -436,11 +453,13 @@ void handle_rclick_board(int x, int y) {
 			break;
 		default: break;
 	}
+
+	check_win();
 }
 
 void check_board_input(void) {
-	bool lmb = IsMouseButtonPressed(MOUSE_BUTTON_LEFT);
-	bool rmb = IsMouseButtonPressed(MOUSE_BUTTON_RIGHT);
+	bool lmb = IsMouseButtonPressed(MOUSE_BUTTON_LEFT) || IsKeyPressed(KEY_D);
+	bool rmb = IsMouseButtonPressed(MOUSE_BUTTON_RIGHT) || IsKeyPressed(KEY_F);
 	if (!lmb && !rmb) return;
 		
 	Vector2 pos = GetMousePosition();
@@ -497,12 +516,19 @@ void draw_menu(void) {
 	for (int i = 0; i < menu_buttons.button_count; i++) {
 		draw_button(*menu_buttons.buttons[i]);
 	}
+
+	draw_text_background("Mine-C-weeper", Vec2(WIDTH/2, HEIGHT*0.3), Vec2(540, 90), 60, (Color){50,50,50,255});
 }
 
-void draw_end(void) {
+void draw_end(bool has_won) {
 	for (int i = 0; i < end_buttons.button_count; i++) {
 		draw_button(*end_buttons.buttons[i]);
 	}
+
+	char* text = "You Lose!";
+	if (has_won) text = "You Win!";
+	
+	draw_text_background(text, Vec2(WIDTH/2, HEIGHT*0.3), Vec2(340, 90), 60, (Color){50,50,50,255});
 }
 
 void load_textures(void) {
@@ -525,7 +551,8 @@ void handle_update(void) {
 		case MENU: return update_menu_state();
 		case IDLE: return update_idle_state();
 		case GAME: return update_game_state();
-		case END:  return update_end_state();
+		case END_WIN:
+		case END_LOSE:  return update_end_state();
 	}
 }
 
@@ -548,10 +575,14 @@ void handle_drawing(void) {
 			draw_board();
 			break;
 
-		case END: 
+		case END_WIN:
+			draw_board();
+			draw_end(true);
+			break;
+		case END_LOSE: 
 			// TODO
 			draw_board();
-			draw_end();
+			draw_end(false);
 			break;
 
 		default: break; // TODO
