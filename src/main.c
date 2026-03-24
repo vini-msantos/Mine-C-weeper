@@ -2,7 +2,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
 
 #define HEIGHT 1000
@@ -22,7 +21,6 @@
 #define HARD_COUNT (int) (WIDTH_TILES * HEIGHT_TILES * 0.2)
 
 #define BUTTON_WAIT 15
-
 
 typedef enum State {
 	MENU,
@@ -559,7 +557,7 @@ void handle_update(void) {
 void handle_drawing(void) {
 	BeginDrawing();
 
-	ClearBackground(SKYBLUE);	
+	ClearBackground((Color) {196, 240, 249});	
 
 	switch (game_state) {
 		case MENU:
@@ -580,12 +578,9 @@ void handle_drawing(void) {
 			draw_end(true);
 			break;
 		case END_LOSE: 
-			// TODO
 			draw_board();
 			draw_end(false);
 			break;
-
-		default: break; // TODO
 	}
 
 	EndDrawing();
@@ -597,10 +592,12 @@ int main() {
 	SetTargetFPS(60);
 
 	load_textures();
+	SetExitKey(KEY_F12);
 
 	enter_menu_state();
 	
 	while (!WindowShouldClose() && !game_should_exit) {
+		if (IsKeyPressed(KEY_ESCAPE)) enter_menu_state();
 		handle_update();
 
 		handle_drawing();		
