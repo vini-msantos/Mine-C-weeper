@@ -3,153 +3,91 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include "definitions.h"
 
-#define HEIGHT 1000
-#define WIDTH 1500
-
-#define WIDTH_TILES 40
-#define HEIGHT_TILES 25
-
-#define TEXTURE_SCALE 2
-#define TEXTURE_SIZE 16
-#define TEXTURE_COUNT 13
-#define TILES_OFFSET_X (WIDTH - TEXTURE_SIZE * TEXTURE_SCALE * WIDTH_TILES)/2.0
-#define TILES_OFFSET_Y (HEIGHT - TEXTURE_SIZE * TEXTURE_SCALE * HEIGHT_TILES)/2.0
-
-#define EASY_COUNT (int) (WIDTH_TILES * HEIGHT_TILES * 0.1)
-#define MEDIUM_COUNT (int) (WIDTH_TILES * HEIGHT_TILES * 0.15)
-#define HARD_COUNT (int) (WIDTH_TILES * HEIGHT_TILES * 0.2)
-
-#define BUTTON_WAIT 15
-
-typedef enum State {
-	MENU,
-	IDLE,
-	GAME,
-	END_WIN,
-	END_LOSE
-} State;
-
-typedef enum Difficulty {
-	EASY,
-	MEDIUM,
-	HARD
-} Difficulty;
-
-typedef enum TileType {
-	N0,
-	N1,
-	N2,
-	N3,
-	N4,
-	N5,
-	N6,
-	N7,
-	N8,
-	MINE,
-	EXPLODED_MINE
-} TileType;
-
-typedef enum TileState {
-	HIDDEN = 11,
-	FLAGGED,
-	DUG
-} TileState;
-
-typedef struct Tile {
-	TileType type;
-	TileState state;
-} Tile;
-
-typedef struct TileLoc {
-	Tile* tile;
-	Vector2 coord;
-} TileLoc;
-
-typedef struct Neighbors {
-	TileLoc* tiles;
-	int count;
-} Neighbors;
-
-typedef struct Button {
-	char* text;
-	int font_size;
-	Vector2 pos;
-	Vector2 size;
-	bool pressed;	
-	bool just_released;
-	bool highlighted;
-} Button;
-
-#define MENU_BUTTONS_COUNT 5
-typedef struct MenuButtons {
-	Button play;
-	Button easy;
-	Button medium;
-	Button hard;
-	Button quit;
-	Button* buttons[5];
-	int button_count;
-} MenuButtons;
-
-#define END_BUTTONS_COUNT 2
-typedef struct EndButtons {
-	Button play_again;
-	Button menu;
-	Button* buttons[END_BUTTONS_COUNT];
-	int button_count;
-} EndButtons;
-
+// SECTION: GLOBAL VARIABLES
+// UI ELEMENTS
 MenuButtons menu_buttons;
 EndButtons end_buttons;
 
+// TEXTURES
 Texture textures[TEXTURE_COUNT];
 Texture flag_texture;
-Difficulty difficulty = MEDIUM;
+
+// GAME STATES
 State game_state = MENU;
+int frames_since_last_state = 0;
 bool game_should_exit = false;
 
-Tile board[WIDTH_TILES][HEIGHT_TILES];
-
+Difficulty difficulty = MEDIUM;
 int flag_count = 0;
 int tiles_dug = 0;
 int mine_count = 0;
 
-int frames_since_last_state = 0;
+Tile board[WIDTH_TILES][HEIGHT_TILES];
+// END_SECTION: GLOBAL VARIABLES
 
-Vector2 Vec2(int x, int y) {
-	return (Vector2) {x, y};
-}
 
-void draw_text_centered(char* text, int x, int y, int font_size) {
-	int text_size_x = MeasureText(text, font_size);
-	int pos_x = x - text_size_x/2;
-	int pos_y = y - font_size/2;
-	DrawText(text, pos_x, pos_y, font_size, WHITE);
-}
+// SECTION: FUNCTION PROTOTYPES
+// HANDLING NEIGHBORING TILES
+Neighbors get_neighbors(int x, int y);
+void neighbors_free(Neighbors neighbors);
+int neighbors_flag_count(Neighbors nbrs);
+void increment_neighbors(int x, int y);
 
-void draw_text_background(char* text, Vector2 pos, Vector2 size, int font_size, Color color) {
-	Rectangle rect = {
-		.x = pos.x - size.x/2,
-		.y = pos.y - size.y/2,
-		.width = size.x,
-		.height = size.y
-	};
-	DrawRectangleRounded(rect, 0.5f, 0, color);
-	draw_text_centered(text, pos.x, pos.y, font_size);
-}
+// PLACING MINES
+bool can_place_mine(int x, int y, int start_x, int start_y);
+int get_difficulty_mine_count(void);
+void place_mines(int mines, int start_x, int start_y);
 
+// HANDLING TEXTURES
+void load_textures(void);
+Texture* get_tile_texture(Tile tile);
+void unload_textures(void);
+
+// DRAWING
+void draw_flag_count(void);
+void draw_tile(Tile tile, int x, int y);
+
+void handle_drawing(void);
+void draw_menu(void);
+void draw_board(void);
+void draw_end(bool has_won);
+
+// UI LOGIC
+void create_menu_buttons(void);
+void create_end_buttons(void);
+void update_buttons(Button* buttons[], int button_count);
+void play_button_pressed(void);
+void quit_button_pressed(void);
+
+// GAME LOGIC
+void check_board_input(void);
+void handle_lclick_board(int x, int y, bool recursive);
+void handle_rclick_board(int x, int y);
+void dig_tile(int x, int y);
+void check_win(void);
+
+// STATE LOGIC
+void enter_menu_state(void);
+void enter_idle_state(void);
+void enter_game_state(int start_x, int start_y);
+void enter_end_state(bool has_won);
+
+void handle_update(void);
+void update_menu_state(void);
+void update_idle_state(void);
+void update_game_state(void);
+void update_end_state(void);
+// END_SECTION: FUNCTION PROTOTYPES
+
+// SECTION: DEFINITIONS
 int get_difficulty_mine_count(void) {
 	switch (difficulty) {
 		case EASY: return EASY_COUNT;
 		case MEDIUM: return MEDIUM_COUNT;
 		case HARD: return HARD_COUNT;
 	}
-}
-
-
-void neighbors_free(Neighbors neighbors) {
-	free(neighbors.tiles);
 }
 
 Neighbors get_neighbors(int x, int y) {
@@ -175,6 +113,10 @@ Neighbors get_neighbors(int x, int y) {
 	return neighbors;
 }
 
+void neighbors_free(Neighbors neighbors) {
+	free(neighbors.tiles);
+}
+
 void increment_neighbors(int x, int y) {
 	Neighbors nbrs = get_neighbors(x, y);
 	for (int i = 0; i < nbrs.count; i++) {
@@ -184,6 +126,14 @@ void increment_neighbors(int x, int y) {
 		}
 	}
 	neighbors_free(nbrs);
+}
+
+int neighbors_flag_count(Neighbors nbrs) {
+	int count = 0;
+	for (int i = 0; i < nbrs.count; i++) {
+		if (nbrs.tiles[i].tile->state == FLAGGED) count++;
+	}
+	return count;
 }
 
 bool can_place_mine(int x, int y, int start_x, int start_y) {
@@ -209,14 +159,24 @@ void place_mines(int mines, int start_x, int start_y) {
 	mine_count = count;
 }
 
+void load_textures(void) {
+	for (int i = 0; i < TEXTURE_COUNT; i++) {
+		textures[i] = LoadTexture(TextFormat("./src/Sprites/%d.png", i));
+	}	
+	flag_texture = LoadTexture("./src/Sprites/flag.png");
+}
+
+void unload_textures(void) {
+	for (int i = 0; i < TEXTURE_COUNT; i++) {
+		UnloadTexture(textures[i]);
+	}
+	UnloadTexture(flag_texture);
+}
+
 Texture* get_tile_texture(Tile tile) {
 	if (tile.state != DUG) return &textures[tile.state];
 
 	return &textures[tile.type];
-}
-
-Vector2 vec2_add(Vector2 a, Vector2 b) {
-	return (Vector2) {a.x + b.x, a.y + b.y };
 }
 
 void draw_flag_count(void) {
@@ -247,19 +207,58 @@ void draw_board(void) {
 	}
 }
 
-Button create_button(char* text, Vector2 pos, Vector2 size, int font_size ) {
-	return (Button) {
-		.text = text,
-		.pos = pos,
-		.size = size,
-		.font_size = font_size,
-		.pressed = false,
-		.just_released = false,
-		.highlighted = false
-	};
+void draw_menu(void) {
+	for (int i = 0; i < menu_buttons.button_count; i++) {
+		draw_button(*menu_buttons.buttons[i]);
+	}
+
+	draw_text_background("Mine-C-weeper", Vec2(WIDTH/2, HEIGHT*0.3), Vec2(540, 90), 60, (Color){50,50,50,255});
 }
 
-void create_menu_buttons() {
+void draw_end(bool has_won) {
+	for (int i = 0; i < end_buttons.button_count; i++) {
+		draw_button(*end_buttons.buttons[i]);
+	}
+
+	char* text = "You Lose!";
+	if (has_won) text = "You Win!";
+	
+	draw_text_background(text, Vec2(WIDTH/2, HEIGHT*0.3), Vec2(340, 90), 60, (Color){50,50,50,255});
+}
+
+void handle_drawing(void) {
+	BeginDrawing();
+
+	ClearBackground((Color) {196, 240, 249});	
+
+	switch (game_state) {
+		case MENU:
+			draw_menu();
+			break;
+		
+		case IDLE:
+			draw_board();
+			break;
+
+		case GAME:
+			draw_flag_count();
+			draw_board();
+			break;
+
+		case END_WIN:
+			draw_board();
+			draw_end(true);
+			break;
+		case END_LOSE: 
+			draw_board();
+			draw_end(false);
+			break;
+	}
+
+	EndDrawing();
+}
+
+void create_menu_buttons(void) {
 	int x = WIDTH / 2;
 	int font_size = 40;
 	Vector2 size = {180, 60};
@@ -296,20 +295,6 @@ void create_end_buttons(void) {
 	end_buttons.button_count = END_BUTTONS_COUNT;
 }
 
-void draw_button(Button button) {
-	Color color = {50, 50, 50, 255};
-	if (button.highlighted) {
-		color = (Color){80, 80, 80, 255};
-	}
-	draw_text_background(button.text, button.pos, button.size, button.font_size, color);
-}
-
-bool in_button(Button but, Vector2 pos) {
-	bool inside_x = (pos.x >= but.pos.x - but.size.x/2) && (pos.x <= but.pos.x + but.size.x/2);
-	bool inside_y = (pos.y >= but.pos.y - but.size.y/2) && (pos.y <= but.pos.y + but.size.y/2);
-	return inside_x && inside_y;
-}
-
 void update_buttons(Button* buttons[], int button_count) {
 	bool mouse_released = IsMouseButtonReleased(MOUSE_BUTTON_LEFT);
 	Vector2 pos = GetMousePosition();
@@ -326,7 +311,14 @@ void update_buttons(Button* buttons[], int button_count) {
 	}
 }
 
-// ENTER STATE LOGIC
+void play_button_pressed(void) {
+	enter_idle_state();
+}
+
+void quit_button_pressed(void) {
+	game_should_exit = true;
+}
+
 void enter_menu_state(void) {
 	game_state = MENU;
 	frames_since_last_state = 0;
@@ -382,8 +374,6 @@ void check_win(void) {
 	}
 }
 
-void handle_lclick_board(int x, int y, bool recursive);
-
 void dig_tile(int x, int y) {
 	Tile* tile = &board[x][y];
 
@@ -409,14 +399,6 @@ void dig_tile(int x, int y) {
 	}
 
 	check_win();
-}
-
-int neighbors_flag_count(Neighbors nbrs) {
-	int count = 0;
-	for (int i = 0; i < nbrs.count; i++) {
-		if (nbrs.tiles[i].tile->state == FLAGGED) count++;
-	}
-	return count;
 }
 
 void handle_lclick_board(int x, int y, bool recursive) {
@@ -470,17 +452,6 @@ void check_board_input(void) {
 	if (rmb) return handle_rclick_board(x, y);
 }
 
-// UI Logic
-void play_button_pressed(void) {
-	enter_idle_state();
-}
-
-void quit_button_pressed(void) {
-	game_should_exit = true;
-}
-
-
-// UPDATE STATE LOGIC
 void update_menu_state(void) {
 	update_buttons(menu_buttons.buttons, menu_buttons.button_count);
 
@@ -510,39 +481,6 @@ void update_end_state(void) {
 	if (end_buttons.menu.just_released) return enter_menu_state();
 }
 
-void draw_menu(void) {
-	for (int i = 0; i < menu_buttons.button_count; i++) {
-		draw_button(*menu_buttons.buttons[i]);
-	}
-
-	draw_text_background("Mine-C-weeper", Vec2(WIDTH/2, HEIGHT*0.3), Vec2(540, 90), 60, (Color){50,50,50,255});
-}
-
-void draw_end(bool has_won) {
-	for (int i = 0; i < end_buttons.button_count; i++) {
-		draw_button(*end_buttons.buttons[i]);
-	}
-
-	char* text = "You Lose!";
-	if (has_won) text = "You Win!";
-	
-	draw_text_background(text, Vec2(WIDTH/2, HEIGHT*0.3), Vec2(340, 90), 60, (Color){50,50,50,255});
-}
-
-void load_textures(void) {
-	for (int i = 0; i < TEXTURE_COUNT; i++) {
-		textures[i] = LoadTexture(TextFormat("./src/Sprites/%d.png", i));
-	}	
-	flag_texture = LoadTexture("./src/Sprites/flag.png");
-}
-
-void unload_textures(void) {
-	for (int i = 0; i < TEXTURE_COUNT; i++) {
-		UnloadTexture(textures[i]);
-	}
-	UnloadTexture(flag_texture);
-}
-
 void handle_update(void) {
 	frames_since_last_state += 1;
 	switch (game_state) {
@@ -553,38 +491,8 @@ void handle_update(void) {
 		case END_LOSE:  return update_end_state();
 	}
 }
+// END_SECTION: DEFINITIONS
 
-void handle_drawing(void) {
-	BeginDrawing();
-
-	ClearBackground((Color) {196, 240, 249});	
-
-	switch (game_state) {
-		case MENU:
-			draw_menu();
-			break;
-		
-		case IDLE:
-			draw_board();
-			break;
-
-		case GAME:
-			draw_flag_count();
-			draw_board();
-			break;
-
-		case END_WIN:
-			draw_board();
-			draw_end(true);
-			break;
-		case END_LOSE: 
-			draw_board();
-			draw_end(false);
-			break;
-	}
-
-	EndDrawing();
-}
 
 int main() {
 	InitWindow(WIDTH, HEIGHT, "cuca beludo games");
